@@ -2,6 +2,7 @@
 
 /*
  * Plugin Name:       WordPress Cloudflare Image Resizer
+ * Version: 2024.06.18.00.00.00
  * Plugin URI:        https://github.org/midweste/wp-cloudflare-image-resizer
  * Description:       Cloudflare Image Resizer with full page buffering/replacement.
  * Author:            Midweste
@@ -25,22 +26,14 @@ class CloudflareImageResizer
 
     public function __construct()
     {
+    }
+
+    public function init()
+    {
         $settings = $this->settings();
-        if (!$settings['enabled']) {
+        if (!$settings['enabled'] || apply_filters('cloudflare_image_resize_exclude', false)) {
             return;
         }
-
-        // Full output buffering
-        // https://stackoverflow.com/questions/772510/wordpress-filter-to-modify-final-html-output
-        ob_start();
-        add_action('shutdown', function () {
-            $final = '';
-            $levels = ob_get_level();
-            for ($i = 0; $i < $levels; $i++) {
-                $final .= ob_get_clean();
-            }
-            echo apply_filters('shutdown_html', $final);
-        }, PHP_INT_MIN); // this priority has to be low
 
         // Image replacement hooks
         if ($settings['hook_wp_get_attachment_image_src']) {
@@ -53,6 +46,27 @@ class CloudflareImageResizer
             add_filter('wp_get_attachment_url', [$this, 'filter_get_attachment_url'], PHP_INT_MAX, 2);
         }
         if ($settings['hook_html'] || $settings['hook_html_background_css']) {
+            if (
+                is_admin()
+                || wp_doing_ajax()
+                || stripos($_SERVER['REQUEST_URI'], '/wp-json/') === 0
+                || (defined('REST_REQUEST') && REST_REQUEST === true)
+            ) {
+                return;
+            }
+
+            // Full output buffering
+            // https://stackoverflow.com/questions/772510/wordpress-filter-to-modify-final-html-output
+            ob_start();
+            add_action('shutdown', function () {
+                $final = '';
+                $levels = ob_get_level();
+                for ($i = 0; $i < $levels; $i++) {
+                    $final .= ob_get_clean();
+                }
+                echo apply_filters('shutdown_html', $final);
+            }, PHP_INT_MIN); // this priority has to be low
+
             add_filter('shutdown_html', function ($content) use ($settings) {
                 if (empty($content)) {
                     return $content;
@@ -64,11 +78,20 @@ class CloudflareImageResizer
                 if ($settings['hook_html_background_css']) {
                     $content = $this->hook_html_background_css($content);
                 }
-                // $end = microtime(true);
-                // d('Time taken: ' . ($end - $start) . ' seconds');
                 return $content;
             }, PHP_INT_MAX, 1);
         }
+        // if (1 == 2 && $settings['hook_css']) {
+        //     add_action('init', function () {
+        //         add_rewrite_rule('^(.+\.css)$', 'index.php?css_request=$matches[1]', 'top');
+        //         flush_rewrite_rules(true);
+        //     });
+        //     add_filter('query_vars', function ($vars) {
+        //         $vars[] = 'css_request';
+        //         return $vars;
+        //     });
+        //     add_action('template_redirect', [$this, 'hook_template_redirect']);
+        // }
     }
 
     protected function settings(): array
@@ -99,17 +122,12 @@ class CloudflareImageResizer
                 'webp' => true,
                 'svg' => true,
             ],
-            // 'image_type_jpg' => true,
-            // 'image_type_jpeg' => true,
-            // 'image_type_gif' => true,
-            // 'image_type_png' => true,
-            // 'image_type_webp' => true,
-            // 'image_type_svg' => true,
             'hook_wp_get_attachment_image_src' => true,
             'hook_wp_calculate_image_srcset' => true,
             'hook_wp_get_attachment_url' => true,
             'hook_html' => true,
             'hook_html_background_css' => true,
+            // 'hook_css' => true,
         ];
 
         // if (defined('CF_IMAGE_RESIZE_SETTINGS') && is_array(CF_IMAGE_RESIZE_SETTINGS)) {
@@ -135,6 +153,9 @@ class CloudflareImageResizer
             return true;
         }
         if (stripos($uri, site_url()) === 0) {
+            return true;
+        }
+        if (stripos($uri, 'data:image') === 0) {
             return true;
         }
         $remote = wp_parse_url($uri, PHP_URL_HOST);
@@ -280,7 +301,6 @@ class CloudflareImageResizer
 
         $settings = [
             'ref' => $ref,
-
             'quality' => $this->setting('quality'),
             'format' => $this->setting('format'),
             'onerror' => $this->setting('onerror'),
@@ -326,10 +346,6 @@ class CloudflareImageResizer
             }
         }
 
-        // if (isset($settings['width']) || isset($settings['height'])) {
-        //     $settings['fit'] = $this->setting('fit');
-        // }
-
         // make settings string for url
         $settings_strings = [];
         foreach ($settings as $setting => $value) {
@@ -353,14 +369,11 @@ class CloudflareImageResizer
         if (!isset($image[0]) || !$this->isValidImage($image[0])) {
             return $image;
         }
-
-        // TCB: Many times the hook filter_get_attachment_url has ran before this, but it can only determine size based on the full image
+        // Many times the hook filter_get_attachment_url has ran before this, but it can only determine size based on the full image
         // We need to see if we are using at a smaller size than originally determined by filter_get_attachment_url
-        //
-        // This check will avoid images that are already re-written
-        // if ($this->isOptimizedImage($image[0])) {
-        //     return $image;
-        // }
+        // so we need to skip any check of the image already being optimized
+
+
         // $image_path = $this->getSourceImagePath($image[0]);
         $image[0] = $this->cloudflareUri($image[0], $image[1], $image[2], 'image_src');
         return $image;
@@ -413,8 +426,6 @@ class CloudflareImageResizer
             }
             $optimize[$match] = str_replace($image, $this->cloudflareUri($image_path, null, null, 'regex'), $match);
         }
-        // d($matches, $imageUrls, $skipped, $optimize);
-        // d(array_keys($optimize), array_values($optimize));
 
         foreach ($optimize as $old => $new) {
             $html = str_replace($old, $new, $html);
@@ -423,29 +434,33 @@ class CloudflareImageResizer
         return $html;
     }
 
-    public function hook_html(string $content): string
+    public function hook_html(string $html): string
     {
         $dom = new \DOMDocument();
 
         libxml_use_internal_errors(true);
-        $loaded = $dom->loadHTML($content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR);
+        $loaded = $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR);
         if (!$loaded) {
-            return $content;
+            return $html;
         }
         $xpath = new \DOMXPath($dom);
 
-        $this->domElementResize($xpath->query('//img'), 'src');
-        $this->domElementResize($xpath->query('//video'), 'poster');
+        $imageChanges = $this->domElementResize($xpath->query('//img'), 'src');
+        $videoChanges = $this->domElementResize($xpath->query('//video'), 'poster');
 
-        $html = $dom->saveHTML();
-        // d($html);
-        return ($html === false) ? $content : $html;
+        if (!$imageChanges && !$videoChanges) {
+            return $html;
+        }
+
+        $newHtml = $dom->saveHTML();
+        return ($newHtml === false) ? $html : $newHtml;
     }
 
-    protected function domElementResize(DomNodeList $elements, string $src_name): void
+    protected function domElementResize(DomNodeList $elements, string $src_name): bool
     {
+        $changed = false;
         if ($elements->length === 0) {
-            return;
+            return $changed;
         }
 
         foreach ($elements as $element) {
@@ -464,6 +479,7 @@ class CloudflareImageResizer
                 $cfurl = $this->cloudflareUri($src, null, null, 'dom');
             }
             $element->setAttribute($src_name, $cfurl);
+            $changed = true;
 
 
             // handle img srcset
@@ -487,18 +503,48 @@ class CloudflareImageResizer
                 $element->setAttribute('srcset', $srcset_cf);
             }
         }
+        return $changed;
     }
+
+    // public function hook_template_redirect()
+    // {
+    //     $cssRequest = get_query_var('css_request');
+    //     if (empty($cssRequest)) {
+    //         return;
+    //     }
+
+    //     // Security check to prevent directory traversal attacks
+    //     if (strpos($cssRequest, '..') !== false) {
+    //         // Bad request
+    //         status_header(400);
+    //         exit;
+    //     }
+
+    //     // Optional: Verify the request is for a valid CSS file within your theme or plugin directory
+    //     $cssFilePath = get_stylesheet_directory() . '/' . $cssRequest; // Example for theme
+    //     // $cssFilePath = WP_PLUGIN_DIR . '/your-plugin-name/' . $cssRequest; // Example for plugin
+
+    //     if (file_exists($cssFilePath)) {
+    //         // Process the CSS file
+    //         $cssContent = file_get_contents($cssFilePath);
+    //         // Perform your replacements here
+    //         $cssContent = $this->hook_html_background_css($cssContent);
+
+    //         // Set the correct content type
+    //         header('Content-Type: text/css');
+    //         echo $cssContent;
+    //         exit;
+    //     } else {
+    //         // File not found
+    //         status_header(404);
+    //         exit;
+    //     }
+    // }
 }
 
-add_action('wp_loaded', function () {
-    if (
-        wp_doing_ajax()
-        || is_admin()
-        || (defined('REST_REQUEST') && REST_REQUEST === true)
-        || apply_filters('cloudflare_image_resize_exclude', false)
-    ) {
-        return;
-    }
-
-    $cf = new \CloudflareImageResizer();
+call_user_func(function () {
+    add_action('plugins_loaded', function () {
+        $cf = new \CloudflareImageResizer();
+        $cf->init();
+    });
 });
