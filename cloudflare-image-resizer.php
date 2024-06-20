@@ -1,8 +1,7 @@
 <?php
 
 /*
- * Plugin Name:       WordPress Cloudflare Image Resizer
- * Version: 2024.06.18.00.00.00
+ * Plugin Name:       WordPress Mu Cloudflare Image Resizer
  * Plugin URI:        https://github.org/midweste/wp-cloudflare-image-resizer
  * Description:       Cloudflare Image Resizer with full page buffering/replacement.
  * Author:            Midweste
@@ -30,6 +29,10 @@ class CloudflareImageResizer
 
     public function init()
     {
+        if (!$this->isEnvironmentValid()) {
+            return;
+        }
+
         $settings = $this->settings();
         if (!$settings['enabled'] || apply_filters('cloudflare_image_resize_exclude', false)) {
             return;
@@ -72,11 +75,20 @@ class CloudflareImageResizer
                     return $content;
                 }
 
+
                 if ($settings['hook_html']) {
-                    $content = $this->hook_html($content);
+                    try {
+                        $content = $this->hook_html($content);
+                    } catch (\Throwable $e) {
+                        $this->log(sprintf('%s - %s', 'hook_html', $e->getMessage()));
+                    }
                 }
                 if ($settings['hook_html_background_css']) {
-                    $content = $this->hook_html_background_css($content);
+                    try {
+                        $content = $this->hook_html_background_css($content);
+                    } catch (\Throwable $e) {
+                        $this->log(sprintf('%s - %s', 'hook_html_background_css', $e->getMessage()));
+                    }
                 }
                 return $content;
             }, PHP_INT_MAX, 1);
@@ -147,23 +159,26 @@ class CloudflareImageResizer
         return (isset($settings[$key])) ? $settings[$key] : null;
     }
 
-    protected function isLocalResource(string $uri): bool
+    protected function log($message)
     {
-        if (stripos($uri, '/') === 0) {
-            return true;
+        error_log(sprintf('%s - [%s]', $message, $_SERVER['REQUEST_URI']));
+    }
+
+    protected function isEnvironmentValid(): bool
+    {
+        // Check if cf-image-resizing.php plugin is activated
+        if (is_plugin_active('cf-image-resizing/cf-image-resizing.php')) {
+            add_action('admin_notices', function () {
+                $html = <<<HTML
+                <div class="notice notice-error">
+                    <p><strong>WordPress Mu Cloudflare Image Resizer:</strong> The plugin <code>cf-image-resizing/cf-image-resizing.php</code> is activated and providing image resizing. Please disable this plugin.</p>
+                </div>
+                HTML;
+                echo $html;
+            });
+            return false;
         }
-        if (stripos($uri, site_url()) === 0) {
-            return true;
-        }
-        if (stripos($uri, 'data:image') === 0) {
-            return true;
-        }
-        $remote = wp_parse_url($uri, PHP_URL_HOST);
-        $site = wp_parse_url(site_url(), PHP_URL_HOST);
-        if (strtolower($remote) === strtolower($site)) {
-            return true;
-        }
-        return false;
+        return true;
     }
 
     /*
@@ -190,8 +205,26 @@ class CloudflareImageResizer
      */
     protected function isOptimizedImage(string $image_url): bool
     {
-        // It seems this is faster and has consistent and better index (100) than strstr().
-        if (stripos($image_url, '/cdn-cgi/image/') !== false) {
+        return stripos($image_url, '/cdn-cgi/image/') !== false;
+    }
+
+    protected function isLocalResource(string $uri): bool
+    {
+        if (stripos($uri, '/') === 0) {
+            return true;
+        }
+        if (stripos($uri, site_url()) === 0) {
+            return true;
+        }
+        if (stripos($uri, 'data:image') === 0) {
+            return true;
+        }
+        if ($this->isOptimizedImage($uri)) {
+            return true;
+        }
+        $remote = wp_parse_url($uri, PHP_URL_HOST);
+        $site = wp_parse_url(site_url(), PHP_URL_HOST);
+        if (strtolower($remote) === strtolower($site)) {
             return true;
         }
         return false;
@@ -247,11 +280,9 @@ class CloudflareImageResizer
         $stripped = @preg_replace($pattern, '${1}.${2}', $this->extractPath($image_url));
 
         if (!file_exists($this->setting('site_dir') . $stripped)) {
-            // d('doesnt exist', $stripped);
             return $image_url;
         }
 
-        // d($image_url, $stripped);
         return $stripped;
     }
 
@@ -287,7 +318,6 @@ class CloudflareImageResizer
             return $image_path;
         }
 
-        // $source_image_path = $this->getSourceImagePath($image_path);
         $image_path = $this->extractPath($image_path);
         if (empty($image_path)) {
             return $image_path;
@@ -353,10 +383,11 @@ class CloudflareImageResizer
         }
 
         // create cf image resize url
-        $newurl = $this->setting('site_url') . '/cdn-cgi/image/' . urlencode(implode(',', $settings_strings)) . $this->setting('site_folder') . $image_path;
-        // if (filter_var($newurl, FILTER_VALIDATE_URL) === false) {
-        // d($newurl, $image_path, $width, $height, $ref);
-        // }
+        $source_image_path = $this->getSourceImagePath($image_path);
+        $newurl = $this->setting('site_url') . '/cdn-cgi/image/' . urlencode(implode(',', $settings_strings)) . $this->setting('site_folder') . $source_image_path;
+        if (filter_var($newurl, FILTER_VALIDATE_URL) === false) {
+            return $image_path;
+        }
         $cache[$cache_name] = $newurl;
         return $newurl;
     }
@@ -375,7 +406,11 @@ class CloudflareImageResizer
 
 
         // $image_path = $this->getSourceImagePath($image[0]);
-        $image[0] = $this->cloudflareUri($image[0], $image[1], $image[2], 'image_src');
+        try {
+            $image[0] = $this->cloudflareUri($image[0], $image[1], $image[2], 'image_src');
+        } catch (\Throwable $e) {
+            $this->log(sprintf('%s (%s, %d) - %s', __METHOD__, $image[0], $attachment_id, $e->getMessage()));
+        }
         return $image;
     }
 
@@ -385,7 +420,12 @@ class CloudflareImageResizer
             if (!$this->isValidImage($value['url'])) {
                 continue;
             }
-            $size_array[$key]['url'] = $this->cloudflareUri($value['url'], $key, 0, 'srcset');
+            try {
+                $size_array[$key]['url'] = $this->cloudflareUri($value['url'], $key, 0, 'srcset');
+            } catch (\Throwable $e) {
+                $this->log(sprintf('%s (%s, %d) - %s', __METHOD__, $image_src, $attachment_id, $e->getMessage()));
+                continue;
+            }
         }
         return $size_array;
     }
@@ -396,7 +436,12 @@ class CloudflareImageResizer
         if ($this->isOptimizedImage($url) || !$this->isValidImage($url)) {
             return $url;
         }
-        return $this->cloudflareUri($url, 0, 0, 'attachment_url');
+        try {
+            $url = $this->cloudflareUri($url, null, null, 'attachment_url');
+        } catch (\Throwable $e) {
+            $this->log(sprintf('%s (%s, %d) - %s', __METHOD__, $url, $post_id, $e->getMessage()));
+        }
+        return $url;
     }
 
     public function hook_html_background_css(string $html): string
@@ -485,22 +530,25 @@ class CloudflareImageResizer
             // handle img srcset
             $srcset = $element->getAttribute('srcset');
             if ($src_name == 'src' && !empty($srcset)) {
-                // $srcset = $attributes->srcset;
-                $sources = array_map('trim', explode(',', $srcset));
-                $srcset_elements = [];
-                foreach ($sources as $source) {
-                    list($srcset_path, $srcset_width) = explode(' ', trim($source));
-                    $srcset_path = trim($srcset_path);
-                    $srcset_width = str_replace('w', '', trim($srcset_width));
-                    $srcset_image_path = self::extractPath($srcset_path);
-                    if (empty($srcset_image_path)) {
-                        continue;
+                $sources = explode('w,', $srcset);
+                if (!empty($sources)) {
+                    $sources = array_map('trim', $sources);
+                    $srcset_elements = [];
+                    foreach ($sources as $source) {
+                        if (strpos($source, ' ') === false) {
+                            break;
+                        }
+                        list($srcset_path, $srcset_width) = explode(' ', trim($source));
+                        if (!is_numeric($srcset_width)) {
+                            break;
+                        }
+                        $srcset_image_path = self::extractPath(trim($srcset_path));
+                        $srcset_cf_path = $this->cloudflareUri($srcset_image_path, (int) trim($srcset_width), null, 'dom');
+                        $srcset_elements[] = $srcset_cf_path . ' ' . $srcset_width . 'w';
                     }
-                    $srcset_cf_path = $this->cloudflareUri($srcset_image_path, $srcset_width, null, 'dom');
-                    $srcset_elements[] = ' ' . $srcset_cf_path . ' ' . $srcset_width . 'w';
+                    $srcset_cf = implode(', ', $srcset_elements);
+                    $element->setAttribute('srcset', $srcset_cf);
                 }
-                $srcset_cf = trim(implode(',', $srcset_elements));
-                $element->setAttribute('srcset', $srcset_cf);
             }
         }
         return $changed;
