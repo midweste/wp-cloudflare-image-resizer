@@ -2,6 +2,7 @@
 
 /*
  * Plugin Name:       WordPress Mu Cloudflare Image Resizer
+ * Version: 2024.06.20.16.17.13
  * Plugin URI:        https://github.org/midweste/wp-cloudflare-image-resizer
  * Description:       Cloudflare Image Resizer with full page buffering/replacement.
  * Author:            Midweste
@@ -167,7 +168,11 @@ class CloudflareImageResizer
     protected function isEnvironmentValid(): bool
     {
         // Check if cf-image-resizing.php plugin is activated
-        if (is_plugin_active('cf-image-resizing/cf-image-resizing.php')) {
+        if (!function_exists('is_plugin_active')) {
+            include_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        if (function_exists('is_plugin_active') && is_plugin_active('cf-image-resizing/cf-image-resizing.php')) {
             add_action('admin_notices', function () {
                 $html = <<<HTML
                 <div class="notice notice-error">
@@ -245,7 +250,7 @@ class CloudflareImageResizer
         $parsed_url = wp_parse_url($url);
 
         // Check if image host is external. If so, then don't strip the root url from the path
-        $host = rtrim(str_replace(['http://', 'https://',], '', $this->setting('site_url')), '/');
+        $host = rtrim(str_replace(['http://', 'https://'], '', $this->setting('site_url')), '/');
         if (isset($parsed_url['host']) && $parsed_url['host'] !== $host) {
             $parsed_url['path'] = '/' . $parsed_url['scheme'] . '://' . $parsed_url['host'] . $parsed_url['path'];
         }
@@ -384,7 +389,7 @@ class CloudflareImageResizer
 
         // create cf image resize url
         $source_image_path = $this->getSourceImagePath($image_path);
-        $newurl = $this->setting('site_url') . '/cdn-cgi/image/' . urlencode(implode(',', $settings_strings)) . $this->setting('site_folder') . $source_image_path;
+        $newurl = $this->setting('site_url') . '/cdn-cgi/image/' . rawurlencode(implode(',', $settings_strings)) . $this->setting('site_folder') . $source_image_path;
         if (filter_var($newurl, FILTER_VALIDATE_URL) === false) {
             return $image_path;
         }
@@ -529,7 +534,7 @@ class CloudflareImageResizer
 
             // handle img srcset
             $srcset = $element->getAttribute('srcset');
-            if ($src_name == 'src' && !empty($srcset)) {
+            if ($src_name === 'src' && !empty($srcset)) {
                 $sources = explode('w,', $srcset);
                 if (!empty($sources)) {
                     $sources = array_map('trim', $sources);
