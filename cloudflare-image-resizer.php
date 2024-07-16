@@ -30,7 +30,7 @@ class CloudflareImageResizer
 
     public function init()
     {
-        if (!$this->isEnvironmentValid()) {
+        if (!$this->isContextValid()) {
             return;
         }
 
@@ -165,8 +165,12 @@ class CloudflareImageResizer
         error_log(sprintf('%s - [%s]', $message, $_SERVER['REQUEST_URI']));
     }
 
-    protected function isEnvironmentValid(): bool
+    protected function isContextValid(): bool
     {
+        if (is_admin()) {
+            return false;
+        }
+
         // Check if cf-image-resizing.php plugin is activated
         if (!function_exists('is_plugin_active')) {
             include_once ABSPATH . 'wp-admin/includes/plugin.php';
