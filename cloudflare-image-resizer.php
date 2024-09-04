@@ -24,9 +24,7 @@ class CloudflareImageResizer
 {
     private $settings = [];
 
-    public function __construct()
-    {
-    }
+    public function __construct() {}
 
     public function init()
     {
