@@ -597,9 +597,56 @@ class CloudflareImageResizer
     // }
 }
 
+/**
+ * Get the CloudflareImageResizer instance
+ *
+ * @return CloudflareImageResizer
+ */
+function wp_cloudflare_image_resizer(): CloudflareImageResizer
+{
+    global $cf_image_resizer;
+    if (!$cf_image_resizer instanceof CloudflareImageResizer) {
+        $GLOBALS['cf_image_resizer'] = new CloudflareImageResizer();
+    }
+    return $GLOBALS['cf_image_resizer'];
+}
+
+/**
+ * Get Cloudflare Image Resizer URI from an image path
+ *
+ * @param string $image_path
+ * @param integer|null $width
+ * @param integer|null $height
+ * @param string|null $ref
+ * @return string
+ */
+function wp_cloudflare_image_resizer_uri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = ''): string
+{
+    return wp_cloudflare_image_resizer()->cloudflareUri($image_path, $width, $height, $ref);
+}
+
+
+/**
+ * Get Cloudflare Image Resizer URI from an attachment ID
+ *
+ * @param integer $attachment_id
+ * @param integer|null $width
+ * @param integer|null $height
+ * @param string|null $ref
+ * @return string
+ */
+function wp_cloudflare_image_resizer_uri_by_id(int $attachment_id, ?int $width = 0, ?int $height = 0, ?string $ref = ''): string
+{
+    $image = wp_get_attachment_image_src($attachment_id, 'full');
+    if (empty($image)) {
+        return '';
+    }
+    return wp_cloudflare_image_resizer_uri($image[0], $width, $height, $ref);
+}
+
 call_user_func(function () {
     add_action('plugins_loaded', function () {
-        $cf = new \CloudflareImageResizer();
+        $cf = wp_cloudflare_image_resizer();
         $cf->init();
     });
 });
