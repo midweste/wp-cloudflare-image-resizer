@@ -319,7 +319,7 @@ class CloudflareImageResizer
         return (is_int($w) && is_int($h)) ? [$w, $h] : [1, 1];
     }
 
-    public function cloudflareUri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = ''): string
+    public function cloudflareUri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
     {
         if (!$this->isLocalResource($image_path) || !$this->isValidImage($image_path)) {
             return $image_path;
@@ -336,14 +336,14 @@ class CloudflareImageResizer
             return $cache[$cache_name];
         }
 
-        $settings = [
+        $settings = array_merge([
             'ref' => $ref,
             'quality' => $this->setting('quality'),
             'format' => $this->setting('format'),
             'onerror' => $this->setting('onerror'),
             'metadata' => $this->setting('metadata'),
             'gravity' => $this->setting('gravity'),
-        ];
+        ], $settings);
 
         // add width and height
         if (!empty($width) && !empty($height)) {
@@ -516,6 +516,7 @@ class CloudflareImageResizer
         }
 
         foreach ($elements as $element) {
+            /** @var \DOMElement $element */
             $src = $element->getAttribute($src_name);
             if (empty($src) || !$this->isLocalResource($src) || $this->isOptimizedImage($src) || !$this->isValidImage($src)) {
                 continue;
@@ -620,9 +621,9 @@ function wp_cloudflare_image_resizer(): CloudflareImageResizer
  * @param string|null $ref
  * @return string
  */
-function wp_cloudflare_image_resizer_uri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = ''): string
+function wp_cloudflare_image_resizer_uri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
 {
-    return wp_cloudflare_image_resizer()->cloudflareUri($image_path, $width, $height, $ref);
+    return wp_cloudflare_image_resizer()->cloudflareUri($image_path, $width, $height, $ref, $settings);
 }
 
 
@@ -635,13 +636,13 @@ function wp_cloudflare_image_resizer_uri(string $image_path, ?int $width = 0, ?i
  * @param string|null $ref
  * @return string
  */
-function wp_cloudflare_image_resizer_uri_by_id(int $attachment_id, ?int $width = 0, ?int $height = 0, ?string $ref = ''): string
+function wp_cloudflare_image_resizer_uri_by_id(int $attachment_id, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
 {
     $image = wp_get_attachment_image_src($attachment_id, 'full');
     if (empty($image)) {
         return '';
     }
-    return wp_cloudflare_image_resizer_uri($image[0], $width, $height, $ref);
+    return wp_cloudflare_image_resizer_uri($image[0], $width, $height, $ref, $settings);
 }
 
 call_user_func(function () {
