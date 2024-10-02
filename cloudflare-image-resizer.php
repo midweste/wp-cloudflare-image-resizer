@@ -319,7 +319,7 @@ class CloudflareImageResizer
         return (is_int($w) && is_int($h)) ? [$w, $h] : [1, 1];
     }
 
-    public function cloudflareUri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
+    public function cloudflareUri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = '', array $settings = []): string
     {
         if (!$this->isLocalResource($image_path) || !$this->isValidImage($image_path)) {
             return $image_path;
@@ -343,23 +343,24 @@ class CloudflareImageResizer
             'onerror' => $this->setting('onerror'),
             'metadata' => $this->setting('metadata'),
             'gravity' => $this->setting('gravity'),
+            'fit' => $this->setting('fit'),
         ], $settings);
 
         // add width and height
         if (!empty($width) && !empty($height)) {
             // provided width and height
             $sizes = [$width, $height];
-            $settings['fit'] = $this->setting('fit');
+            // $settings['fit'] = $this->setting('fit');
         } elseif (!empty($width) && empty($height)) {
             // find width and height from image
             $ogsizes = $this->extractSizes($image_path);
             $ratio = $ogsizes[0] / $ogsizes[1];
             $sizes = [$width, round($width / $ratio)];
-            $settings['fit'] = $this->setting('fit');
+            // $settings['fit'] = $this->setting('fit');
         } else {
             // find width and height from image
             $sizes = $this->extractSizes($image_path);
-            $settings['fit'] = $this->setting('fit');
+            // $settings['fit'] = $this->setting('fit');
         }
 
         if (!empty($sizes[0])) {
