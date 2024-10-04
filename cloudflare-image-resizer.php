@@ -2,7 +2,7 @@
 
 /*
  * Plugin Name:       WordPress Mu Cloudflare Image Resizer
- * Version: 2024.07.16.18.41.19
+ * Version: 2024.10.02.17.53.14
  * Plugin URI:        https://github.org/midweste/wp-cloudflare-image-resizer
  * Description:       Cloudflare Image Resizer with full page buffering/replacement.
  * Author:            Midweste
