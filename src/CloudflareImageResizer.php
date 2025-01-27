@@ -1,16 +1,5 @@
 <?php
 
-/*
- * Plugin Name:       WordPress Mu Cloudflare Image Resizer
- * Version: 2024.10.30.15.07.14
- * Plugin URI:        https://github.org/midweste/wp-cloudflare-image-resizer
- * Description:       Cloudflare Image Resizer with full page buffering/replacement.
- * Author:            Midweste
- * Author URI:        https://github.org/midweste/wp-cloudflare-image-resizer
- * Update URI:        https://api.github.com/repos/midweste/wp-cloudflare-image-resizer/commits/main
- * License:           MIT
- */
-
 
 /**
  * Cloudflare Image Resizer Class
@@ -57,8 +46,7 @@ class CloudflareImageResizer
                 return;
             }
 
-            // Full output buffering
-            // https://stackoverflow.com/questions/772510/wordpress-filter-to-modify-final-html-output
+            // Full output buffering - https://stackoverflow.com/questions/772510/wordpress-filter-to-modify-final-html-output
             ob_start();
             add_action('shutdown', function () {
                 $final = '';
@@ -66,14 +54,13 @@ class CloudflareImageResizer
                 for ($i = 0; $i < $levels; $i++) {
                     $final .= ob_get_clean();
                 }
-                echo apply_filters('shutdown_html', $final);
+                echo apply_filters('cloudflare_image_resize_shutdown_html', $final);
             }, PHP_INT_MIN); // this priority has to be low
 
-            add_filter('shutdown_html', function ($content) use ($settings) {
+            add_filter('cloudflare_image_resize_shutdown_html', function ($content) use ($settings) {
                 if (empty($content)) {
                     return $content;
                 }
-
 
                 if ($settings['hook_html']) {
                     try {
@@ -82,6 +69,7 @@ class CloudflareImageResizer
                         $this->log(sprintf('%s - %s', 'hook_html', $e->getMessage()));
                     }
                 }
+
                 if ($settings['hook_html_background_css']) {
                     try {
                         $content = $this->hook_html_background_css($content);
@@ -105,7 +93,7 @@ class CloudflareImageResizer
         // }
     }
 
-    protected function settings(): array
+    public function settings(): array
     {
         if (!empty($this->settings)) {
             return $this->settings;
@@ -117,21 +105,21 @@ class CloudflareImageResizer
             'site_folder' => '',
             'site_dir' => ABSPATH,
             'image_style' => 'full',
-            'fit' => 'scale-down',
+            'fit' => 'cover',
             'gravity' => '',
             'quality' => 80,
             'sharpen' => 0,
             'format' => 'auto',
             'onerror' => 'redirect',
             'metadata' => 'none',
-            'max_width' => 1600,
+            'max_width' => 1920,
             'image_types' => [
-                'jpg' => true,
-                'jpeg' => true,
-                'gif' => true,
-                'png' => true,
-                'webp' => true,
-                'svg' => true,
+                'jpg',
+                'jpeg',
+                'gif',
+                'png',
+                'webp',
+                'svg',
             ],
             'hook_wp_get_attachment_image_src' => true,
             'hook_wp_calculate_image_srcset' => true,
@@ -598,57 +586,3 @@ class CloudflareImageResizer
     //     }
     // }
 }
-
-/**
- * Get the CloudflareImageResizer instance
- *
- * @return CloudflareImageResizer
- */
-function wp_cloudflare_image_resizer(): CloudflareImageResizer
-{
-    global $cf_image_resizer;
-    if (!$cf_image_resizer instanceof CloudflareImageResizer) {
-        $GLOBALS['cf_image_resizer'] = new CloudflareImageResizer();
-    }
-    return $GLOBALS['cf_image_resizer'];
-}
-
-/**
- * Get Cloudflare Image Resizer URI from an image path
- *
- * @param string $image_path
- * @param integer|null $width
- * @param integer|null $height
- * @param string|null $ref
- * @return string
- */
-function wp_cloudflare_image_resizer_uri(string $image_path, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
-{
-    return wp_cloudflare_image_resizer()->cloudflareUri($image_path, $width, $height, $ref, $settings);
-}
-
-
-/**
- * Get Cloudflare Image Resizer URI from an attachment ID
- *
- * @param integer $attachment_id
- * @param integer|null $width
- * @param integer|null $height
- * @param string|null $ref
- * @return string
- */
-function wp_cloudflare_image_resizer_uri_by_id(int $attachment_id, ?int $width = 0, ?int $height = 0, ?string $ref = '', ?array $settings = []): string
-{
-    $image = wp_get_attachment_image_src($attachment_id, 'full');
-    if (empty($image)) {
-        return '';
-    }
-    return wp_cloudflare_image_resizer_uri($image[0], $width, $height, $ref, $settings);
-}
-
-call_user_func(function () {
-    add_action('plugins_loaded', function () {
-        $cf = wp_cloudflare_image_resizer();
-        $cf->init();
-    });
-});
